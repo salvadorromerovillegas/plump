@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module>
+    <ModulePrefs title="Texto en una imagen" author="Salvador Romero Villegas">        
+	<Require feature="dynamic-height" />
+    </ModulePrefs> 
+    <Content type="url" href="https://googledrive.com/host/0B7R2T-U-1ZrheTlfaHNQMm0zTWM/index.html" />     
+</Module>

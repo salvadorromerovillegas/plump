@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>PLUMP.</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <meta name="viewport" content="width=device-width,height=device-height,user-scalable=no,initial-scale=1">
+        <meta name="author" content="Salvador Romero Villegas" >
+        <style>
+            body {
+                padding:0px;
+                margin:0px;
+            }
+            #main_div {
+                font-family: sans-serif;
+                font-size: 10px;
+                text-align:center;
+                background:#dfdd9e;
+                border:2px solid #6b215e;                
+                padding:10px 5px 5px 5px;
+                max-width:315px;
+                display:inline-block;                
+            }
+            
+            .resaltar {
+                font-size:1.6em;
+                font-weight: bolder;
+            }            
+            
+            img#image_output {
+                max-width:10px;
+                max-height:10px;
+                display:none;
+            }
+            :disabled {
+                color:gray;
+            }
+            
+            button,input[type="file"] {
+                font-family: sans-serif;
+                font-size: 11px;
+                max-width: 300px;
+                border-radius:0px;
+            }
+            
+            #downlink_hidden,#canvas_ed{
+                display:none;
+            }
+            
+            #adjustments
+            {
+                display:none;
+                text-align:center;                
+                max-width:300px;
+            }
+            
+            .separator
+            {
+                height:10px;
+            }
+            
+            #no_canvas_support {
+                display:none;
+                border:1px solid blue;
+            }
+            #download_div {
+                display:none;
+            }
+            #downimg_alt_div {
+                display:none;
+            }
+            #LOADING_IMAGE {
+                display:none;
+            }
+            
+        </style>
+        <script src="plump_modernizr.js"></script>
+        <script src="jquery-mini.js"></script>        
+        <script>
+            
+        /* Application (Global) Context*/
+        window.appCtx={
+            "text":"Ejemplo",
+            "text_size":55,
+            "text_color":"#FFFFFF",  
+            "background_color":"rgba(34,91,22,0.6)",            
+            "dispx":null, //null will center the image horizontally
+            "dispy":null, //null will center the image vetically
+            "zoom":0, // 0 is 1:1 pixel relationship
+            "canvas_image_height":240,
+            "canvas_width":300,
+            "canvas_height":300,
+            "canvas_ctx":null,
+            "projected_height":0,
+            "projected_width":0,
+            "img_natural_width":0,
+            "img_natural_height":0,
+            "img":null
+        };
+        
+        function estadoImagenCargada()
+        {   
+            $("#NO_IMAGE").hide();
+            $("#LOADING_IMAGE").hide();
+            $("#adjustments").show();
+            $("#canvas_ed").show();
+            $("input[type='file']").removeAttr("disabled");
+            $("#download_div").show();            
+        }
+        
+        function estadoImagenCargando()
+        {                        
+            $("#NO_IMAGE").hide();            
+            $("#LOADING_IMAGE").show();
+            $("#adjustments").hide();
+            $("#canvas_ed").hide();
+            $("#download_div").hide();
+            $("input[type='file']").attr("disabled", "disabled");
+        }
+        
+        function estadoSinImagen ()
+        {
+            $("#NO_IMAGE").show();
+            $("#LOADING_IMAGE").hide();
+            $("#adjustments").hide();
+            $("#canvas_ed").hide();
+            $("input[type='file']").removeAttr("disabled");
+            $("#download_div").hide();            
+        }
+        
+        function dibujarTexto()
+        {                        
+            
+            appCtx.canvas_ctx.fillStyle =appCtx.background_color;        
+            appCtx.canvas_ctx.fillRect (0,
+                        appCtx.canvas_image_height,
+                        appCtx.canvas_width,
+                        appCtx.canvas_height-appCtx.canvas_image_height);
+
+            var lines=String(appCtx.text).split("\n");
+                        
+            var i;
+            var ptsize=appCtx.text_size;
+            var maxLength=0;
+            do {
+                appCtx.canvas_ctx.font=ptsize+"px Arial";
+                maxLength=0;
+                for (i=0;i<lines.length;i++)
+                {
+                   var rlength=appCtx.canvas_ctx.measureText(lines[i]).width;
+                   maxLength=maxLength>rlength?maxLength:rlength;
+                }
+                if (maxLength>appCtx.canvas_width) ptsize--;
+            } while (maxLength>appCtx.canvas_width && ptsize>0);
+            
+            while (ptsize>0 && 
+                    lines.length*ptsize>(appCtx.canvas_height-appCtx.canvas_image_height))
+                    ptsize--;
+            
+            if (ptsize<=0)
+            {
+                ptsize=10;                
+            }           
+            appCtx.canvas_ctx.font=ptsize+"px Arial";    
+            
+            var rsize=Math.round((appCtx.canvas_height-appCtx.canvas_image_height)/lines.length);
+            for (i=0; i<lines.length;i++)
+            {
+            var xt=(appCtx.canvas_width-(appCtx.canvas_ctx.measureText(lines[i]).width))/2;
+            
+            var yt=appCtx.canvas_image_height+i*rsize+rsize/2;
+            
+            xt=Math.round(xt);
+            yt=Math.round(yt);
+            
+            appCtx.canvas_ctx.strokeStyle=appCtx.border_color;
+            appCtx.canvas_ctx.fillStyle =appCtx.text_color;               
+            appCtx.canvas_ctx.textBaseline="middle";         
+            appCtx.canvas_ctx.fillText(lines[i],xt,yt);
+            }
+        }
+        
+        function actualizarEstadoBotones (forcedisabled)
+        {
+            forcedisabled=forcedisabled || false;
+            
+            if (forcedisabled)
+                $("#center").attr("disabled","disabled");
+            else 
+                $("#center").removeAttr("disabled");
+            
+            if (forcedisabled || appCtx.dispx<=0)
+                $("#left").attr("disabled","disabled");
+            else 
+                $("#left").removeAttr("disabled");
+            
+            if (forcedisabled || (appCtx.dispx+appCtx.projected_width)>=appCtx.img_natural_width)
+                $("#right").attr("disabled","disabled");
+            else 
+                $("#right").removeAttr("disabled");
+            
+            if (forcedisabled || appCtx.dispy<=0)
+                $("#up").attr("disabled","disabled");
+            else 
+                $("#up").removeAttr("disabled");
+            
+            if (forcedisabled || (appCtx.dispy+appCtx.projected_height)>=appCtx.img_natural_height)
+                $("#down").attr("disabled","disabled");
+            else 
+                $("#down").removeAttr("disabled");
+            
+            if (forcedisabled || appCtx.zoom>=1)
+                $("#zoomin").attr("disabled","disabled");
+            else 
+                $("#zoomin").removeAttr("disabled");
+            
+            if (forcedisabled || appCtx.zoom<=0)
+                $("#zoomout").attr("disabled","disabled");
+            else 
+                $("#zoomout").removeAttr("disabled");
+            
+            if (forcedisabled)
+                $("#resetzoom").attr("disabled","disabled");
+            else 
+                $("#resetzoom").removeAttr("disabled");
+                        
+        }
+        
+        /**
+         *  
+         */
+        function calcularCaja(
+            img_width,img_height, 
+            dst_width, dst_height, 
+            zoom, dispx, dispy)
+        {
+            //Default Values
+            var ret={"x":dispx || -1,"y":dispy || -1,
+                "width":dst_width,
+                "height":dst_height,
+                "min_zoom":img_width > img_height?dst_height/img_height:dst_width/img_width,
+                "max_zoom":4};
+                        
+            //zoom range [0,1] to [min_zoom,max_zoom]
+            zoom=Math.min(Math.max(zoom||0,0),1);            
+            var x=0.35;
+            var y=0.15;
+            zoom=zoom<x?zoom*y/x:(zoom-x)*(1-y)/(1-x)+y;            
+            zoom=zoom*(ret.max_zoom-ret.min_zoom)+ret.min_zoom;
+            //zoom applied viewport 
+            ret.width=Math.min(img_width,ret.width/zoom);
+            ret.height=Math.min(img_height,ret.height/zoom);
+            
+            //x and y axes displacements
+            if (dispx===null) ret.x=(img_width-ret.width)/2;
+            else if (ret.x<0) ret.x=0;
+            else ret.x=(ret.x+ret.width)>img_width?img_width-ret.width:ret.x;
+            
+            if (dispy===null) ret.y=(img_height-ret.height)/2;
+            else if (ret.y<0) ret.y=0; 
+            else ret.y=(ret.y+ret.height)>img_height?img_height-ret.height:ret.y;
+            
+            return ret;
+        }
+    
+        function dibujarImagenEnCanvas()
+        {                                 
+            if (appCtx.img)
+            {  
+               var r=calcularCaja(appCtx.img_natural_width,appCtx.img_natural_height,
+                                   appCtx.canvas_width,appCtx.canvas_height,
+                                   appCtx.zoom,appCtx.dispx,
+                                   appCtx.dispy);
+                                   
+               appCtx.canvas_ctx.fillStyle=appCtx.text_color;
+               appCtx.canvas_ctx.fillRect (0,0,appCtx.canvas_height,appCtx.canvas_width);
+
+               appCtx.canvas_ctx.drawImage(appCtx.img,r.x,r.y,r.width,r.height,
+                                        0,0,appCtx.canvas_width,appCtx.canvas_height);                                                                        
+               appCtx.dispx=r.x;
+               appCtx.dispy=r.y;
+               appCtx.projected_width=r.width;
+               appCtx.projected_height=r.height;
+            }
+        }
+        
+        /**
+        * Dibuja la imagen en canvas y el rectangulo.
+        * Después actualiza los botones (una vez conocido en ancho y alto proyectado).
+        */
+       function actualizarCanvas ()
+       {
+            dibujarImagenEnCanvas();
+            dibujarTexto();                                       
+            actualizarEstadoBotones();
+       }
+        
+        /**
+         * Carga la imagen de forma asincrona y una vez cargada,
+         * invoca a updateImage para que la pinte en el canvas, junto con
+         * el resto de efectos.
+         * @param {File} file Objeto File.
+         */
+        function leerImagenDeArchivoYActualizarCanvas(file)
+        {
+            appCtx.img=$("#image_output")[0];                            
+            estadoImagenCargando();
+            actualizarEstadoBotones(true);
+            //Cuando la imagen se carga, entonces se vuelca al canvas
+           appCtx.img.onload=function(e){
+                appCtx.img_natural_width=appCtx.img.naturalWidth||appCtx.img.width;
+                appCtx.img_natural_height = appCtx.img.naturalHeight || appCtx.img.height;
+                actualizarCanvas();
+                estadoImagenCargada();
+            };
+            
+            // /*or*/ var img=document.getElementById("image_output");                               
+            var fr = new FileReader();
+            fr.onload = function(e) {
+                appCtx.dispx=null;
+                appCtx.dispy=null;
+                appCtx.zoom=0;
+                appCtx.img.src = e.target.result;
+            };        
+            fr.onprogress=function (p)
+            {
+                var xsizes=["B","kB","mB","gB"];
+                if (p.total>0) {
+                    $("#loading_progress").html(Number((p.loaded/p.total)*100).toFixed(2)+"%");
+                }
+                else{
+                    var t=p.loaded;
+                    var i;
+                    for (i=0;i<xsizes.length && Math.floor(t/1024)>0;i++,t=t/1024);
+                    $("#loading_progress").html(Number(t).toFixed(2)+" "+xsizes[i]);
+                }
+                                
+            }
+            fr.readAsDataURL(file);
+
+        }
+        
+        function generarDescargaDeArchivo()
+        {
+             
+             var canvas=$("#canvas_ed")[0];
+             
+             $("#downimg_alt_div").hide();            
+             var imgtypes=new Array();
+             var dname=new Array();
+             
+             if (Modernizr.todataurlpng) {
+                 dname[dname.length]="imagen.png";
+                 imgtypes[imgtypes.length]="image/png";
+             }
+             if (Modernizr.todataurljpeg) {
+                 dname[dname.length]="imagen.jpg";
+                 imgtypes[imgtypes.length]="image/jpeg";
+             } 
+             
+             if (Modernizr.adownload && imgtypes.length>0) {
+                    
+                    $("#downlink_hidden").attr("href",canvas.toDataURL(imgtypes[0]))
+                            .attr("download",dname[0])[0].click();                          
+             } 
+             else if (imgtypes.length>0)
+             {
+                 $("#downimg_alt_div").show();
+                 $("#downimg_alt").attr("src",canvas.toDataURL(imgtypes[0]));                    
+             } 
+             else alert ("Imposible descargar imagen.");                                          
+        }
+        
+        $(function () {
+       
+        if (!Modernizr.canvas && !Modernizr.canvastext) {
+            //TODO:esconder entrada y poner DIV de aviso 
+            // de necesario actualizar navegador.
+            $("#no_canvas_support").show();
+            $("#main_div").hide();
+            return false;
+        }
+        
+        estadoSinImagen();
+        var canvas=$("#canvas_ed")[0];
+        appCtx.text=$("#text")[0].value;
+        appCtx.canvas_ctx=canvas.getContext("2d");
+        appCtx.canvas_width=canvas.width;
+        appCtx.canvas_height=canvas.height;
+        appCtx.canvas_image_height=Math.round(appCtx.canvas_height*0.8);
+        var ifp=($("#img_from_pc").change(function (event) {
+           var fileList=this.files;
+           if (fileList.length>0)
+           {
+               leerImagenDeArchivoYActualizarCanvas(fileList[0]);
+           }           
+        })[0]).files;
+        if (ifp.length>0) leerImagenDeArchivoYActualizarCanvas(ifp[0]);
+        
+        $("#up").click(function() {  
+            var d=Math.max(5,Math.abs((appCtx.img_natural_height-appCtx.projected_height)/12));
+            appCtx.dispy=appCtx.dispy-d;
+            actualizarCanvas();
+        });
+        $("#down").click(function() {
+            var d=Math.max(5,Math.abs((appCtx.img_natural_height-appCtx.projected_height)/12));
+            appCtx.dispy=appCtx.dispy+d;
+            actualizarCanvas();
+        });
+        
+        $("#center").click(function() {
+            appCtx.dispx=null;
+            appCtx.dispy=null;
+            actualizarCanvas();
+        });
+        
+        $("#left").click(function() {
+            var d=Math.max(5,Math.abs((appCtx.img_natural_width-appCtx.projected_width)/12));
+            appCtx.dispx=appCtx.dispx-d;
+            actualizarCanvas();
+        });
+        
+        $("#right").click(function() {
+            var d=Math.max(5,Math.abs((appCtx.img_natural_width-appCtx.projected_width)/12));
+            appCtx.dispx=appCtx.dispx+d;
+            actualizarCanvas();
+        });
+        
+        $("#zoomin").click(function() {
+            appCtx.zoom=appCtx.zoom+0.02;
+            actualizarCanvas();
+        });
+        $("#zoomout").click(function() {
+            appCtx.zoom=appCtx.zoom-0.02;
+            actualizarCanvas();
+        });
+        
+        $("#resetzoom").click(function() {
+            appCtx.zoom=0;
+            actualizarCanvas();
+        });
+        
+        $("#downlink").click(function() {generarDescargaDeArchivo();return false;});
+        var md_pos_x;
+        var md_pos_y;
+        var orig_x,orig_y;
+        
+        var mouse_status=0;
+        
+        $("#canvas_ed").mousedown(function(e) {
+           md_pos_x=e.clientX;
+           md_pos_y=e.clientY;                       
+           orig_x=appCtx.dispx;
+           orig_y=appCtx.dispy;
+           mouse_status=1;
+        });
+       
+        $("#canvas_ed").mousemove(function(e) {
+            var px_xrs=appCtx.projected_height/appCtx.canvas_height;
+            var px_yrs=appCtx.projected_width/appCtx.canvas_width;
+            if(mouse_status===1)
+            {
+                appCtx.dispx=orig_x+(md_pos_x-e.clientX)*px_xrs;
+                appCtx.dispy=orig_y+(md_pos_y-e.clientY)*px_yrs;
+                actualizarCanvas();
+            }
+        });
+        
+        $("body").mouseup(function(e) {
+            mouse_status=0;
+        });
+        
+        var txt_ch_dt=function(e) {
+           appCtx.text=this.value; 
+           actualizarCanvas();
+        };
+        $("#text").change(txt_ch_dt).keyup(txt_ch_dt);
+        
+    });    
+        </script>
+    </head>
+    <body>
+        <img id="image_output">        
+        <div style="text-align:center">
+            <div id="no_canvas_support">
+                <P>Tu navegador es antigüo y no soporta Canvas.</P>
+                <P>¡¡Actualiza tu navegador!!</P>                
+            </div>            
+        <div id="main_div">
+        <div>                 
+            <input type="file" accept="image/*" id="img_from_pc" /><br>        
+        <div class="separator"></div>                        
+        <div id="NO_IMAGE"><P class="resaltar">Carga una imagen para empezar.</P>
+            <div style="text-align:center"><img src="plump.jpg"></div>            
+            <P>Nota: Tu imagen no será enviada ni guardada en ningún servidor externo,
+            esto es una aplicación web que se ejecuta en tu navegador.</P>
+            </div>
+        <div id="LOADING_IMAGE"><P>Cargando <span id="loading_progress"></span></P></div>
+        <canvas id="canvas_ed" width="300" height="300"></canvas>
+        <BR>
+        <div id="adjustments">
+            <div style="text-align:left">
+        <label for="text">Texto:<br> <textarea style="width:290px" id="text">Ejemplo</textarea></label><br>
+            </div>    
+        Puedes usar el ratón (hacer clic y arrastrar) para mover la imagen, 
+        o bien usar los botones siguientes:
+        <div class="separator"></div>
+        <div>
+        <button id="up" disabled="disabled">SUBIR</button>
+        <div >
+        <button id="left" disabled="disabled">IZQUIERDA</button>
+        <button id="center" disabled="disabled" title="centrar">o</button>
+        <button id="right" disabled="disabled">DERECHA</button>
+        </div>
+        <div><button id="down" disabled="disabled">BAJAR</button></div>
+        </div>
+        <div class="separator"></div>
+        <div>
+            <button id="zoomin" disabled="disabled">ACERCAR</button>
+            <button id="resetzoom" disabled="disabled">RESET</button>
+            <button id="zoomout" disabled="disabled">ALEJAR</button></div>
+        </div>
+        
+        <div class="separator"></div>
+        <div id="download_div">            
+        <a id="downlink" href="" class="resaltar" >Haz click aquí para descargar imagen</a>
+        <a id="downlink_hidden" href="" download="plump.png">HIDDEN</a>
+        <div id="downimg_alt_div">
+            <p class="resaltar">
+              Tu navegador no soporta descarga directa de la imagen.</P>
+            <P>
+            Tienes que descargar la imagen manualmente, haciendo encima de la siguiente imagen con 
+            el botón secundario del ratón y seleccionando la opción "Guardar como..." del menú contextual:</p>
+        <img src="" id="downimg_alt" width="150">
+        </div>
+        </div>
+        </div>
+            <small><small><A href="http://salvadorromero.blogspot.com.es/">Author: Salvador Romero Villegas</a></small></small>
+        </div>            
+        </div>
+        </body>
+</html>
